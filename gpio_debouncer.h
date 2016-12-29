@@ -13,7 +13,7 @@ struct gpio_input
 {
 	u8 num;
 	struct gpio *gpio;
-	void (*on_change)(void *, u8);
+	void (*on_change)(struct gpio_input *, u8);
 	u8 stable_state :1;
 	void *priv;
 
@@ -27,5 +27,6 @@ struct gpio_input
 };
 
 void gpio_debouncer_register_input(struct gpio_input *input);
+void gpio_debouncer_register_list_inputs(struct gpio_input *list_inputs);
 
 #endif
