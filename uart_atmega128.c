@@ -37,6 +37,7 @@ static struct uart_regs {
 		},
 };
 
+static struct uart *uarts[2] = {NULL, NULL};
 static struct uart_regs *console_regs = NULL;
 
 int usart_send_byte(struct uart *uart, u8 byte)
@@ -53,7 +54,7 @@ u8 usart_get_byte(struct uart *uart)
 	return 0;
 }
 
-u8 usart_get_blocked(struct uart *uart)
+u8 usart_get_byte_blocked(struct uart *uart)
 {
 	while (!(*uart->regs->ucsra & (1 << RXC0)));
 	return *uart->regs->udr;
@@ -80,17 +81,67 @@ int usart_init(struct uart *uart)
 	if (uart->chip_id < 0 || uart->chip_id > 1)
 		return -EINVAL;
 
-	uart->regs = uart_ports + uart->chip_id;
-	ubrr = F_CPU / 16 / uart->baud_rate - 1;
+	uarts[uart->chip_id] = uart;
 
+	/* set registers */
+	uart->regs = uart_ports + uart->chip_id;
+
+	/* setup uart speed */
+	ubrr = F_CPU / 16 / uart->baud_rate - 1;
 	*uart->regs->ubrrh = (u8) (ubrr >> 8);
 	*uart->regs->ubrrl = (u8) ubrr;
-	*uart->regs->ucsrb = (1 << RXEN0) | (1 << TXEN0);
-	*uart->regs->ucsrc = (3 << UCSZ0) | (3 << UCSZ0);
+
+	/* setup irq */
+	*uart->regs->ucsrb = 0;
+	if (uart->rx_int)
+		*uart->regs->ucsrb |= (1 << RXCIE);
+
+	if (uart->tx_int)
+		*uart->regs->ucsrb |= (1 << TXCIE);
+
+	if (uart->udre_int)
+		*uart->regs->ucsrb |= (1 << UDRIE);
+
+	/* setup 8bit mode */
+	*uart->regs->ucsrc = (1 << UCSZ1) | (1 << UCSZ0);
+
+	/* enable receiver and transmitter */
+	*uart->regs->ucsrb |= (1 << RXEN0) | (1 << TXEN0);
 
 	if (uart->fdev_type) {
 		console_regs = uart->regs;
 		fdevopen((void *) serial_out, (void *) serial_in);
 	}
 	return 0;
+}
+
+
+SIGNAL(SIG_UART0_RECV)
+{
+	uarts[0]->rx_int(uarts[0]->priv, *uarts[0]->regs->udr);
+}
+
+SIGNAL(SIG_UART0_TRANS)
+{
+	uarts[0]->tx_int(uarts[0]->priv);
+}
+
+SIGNAL(SIG_UART0_DATA)
+{
+	uarts[0]->udre_int(uarts[0]->priv);
+}
+
+SIGNAL(SIG_UART1_RECV)
+{
+	uarts[1]->rx_int(uarts[1]->priv, *uarts[0]->regs->udr);
+}
+
+SIGNAL(SIG_UART1_TRANS)
+{
+	uarts[1]->tx_int(uarts[1]->priv);
+}
+
+SIGNAL(SIG_UART1_DATA)
+{
+	uarts[1]->udre_int(uarts[1]->priv);
 }
