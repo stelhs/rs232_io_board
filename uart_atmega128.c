@@ -6,6 +6,7 @@
  */
 
 #include <avr/wdt.h>
+#include <avr/interrupt.h>
 #include <stdio.h>
 #include "types.h"
 #include "uart.h"
@@ -115,33 +116,33 @@ int usart_init(struct uart *uart)
 	return 0;
 }
 
-
-SIGNAL(SIG_UART0_RECV)
+ISR(USART0_RX_vect)
 {
 	uarts[0]->rx_int(uarts[0]->priv, *uarts[0]->regs->udr);
 }
 
-SIGNAL(SIG_UART0_TRANS)
+ISR(USART0_TX_vect)
 {
 	uarts[0]->tx_int(uarts[0]->priv);
 }
 
-SIGNAL(SIG_UART0_DATA)
+
+ISR(USART0_UDRE_vect)
 {
 	uarts[0]->udre_int(uarts[0]->priv);
 }
 
-SIGNAL(SIG_UART1_RECV)
+ISR(USART1_RX_vect)
 {
 	uarts[1]->rx_int(uarts[1]->priv, *uarts[0]->regs->udr);
 }
 
-SIGNAL(SIG_UART1_TRANS)
+ISR(USART1_TX_vect)
 {
 	uarts[1]->tx_int(uarts[1]->priv);
 }
 
-SIGNAL(SIG_UART1_DATA)
+ISR(USART1_UDRE_vect)
 {
 	uarts[1]->udre_int(uarts[1]->priv);
 }

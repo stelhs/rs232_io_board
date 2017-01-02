@@ -8,6 +8,10 @@
 #define CERIUM_H_
 
 #include "types.h"
+#include "uart.h"
+#include "sys_timer.h"
+#include "idle.h"
+#include "list.h"
 
 #define CER_FRM_MTU 8 /* Frame MTU size */
 #define CER_FRM_MARK 0x53 /* Frame's delimiter Marker value */
@@ -46,7 +50,7 @@ struct cer_if {
 	struct cer_frm *curr_tx_frm; /* current processing tx buffer */
 	struct cer_frm *processing_tx_frm; /* current processing tx buffer */
 
-	static struct list list_rx_subscribers;
+	struct list list_rx_subscribers;
 
 	u16 cnt_rx_bytes;
 	u16 cnt_frm_rx;
@@ -97,7 +101,7 @@ struct cer_rx_handler {
 
 
 int cerium_register(struct cer_if *cer_if, int uart_id, int uart_speed);
-int cerium_send_frm(struct cer_if *cer_if, u8 type, u8 *data, u8 *size);
+int cerium_send_frm(struct cer_if *cer_if, u8 type, u8 *data, u8 size);
 void cerium_add_rx_handler(struct cer_if *cer_if, struct cer_rx_handler *handler);
 
 #endif /* CERIUM_H_ */

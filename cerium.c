@@ -5,10 +5,34 @@
  *      Author: Michail Kurochkin
  */
 
+#include <string.h>
 #include <stdio.h>
+#include <avr/interrupt.h>
 #include "types.h"
 #include "list.h"
+#include "uart.h"
 #include "cerium.h"
+
+
+/**
+ * CRC-16 CCITT calculator
+ * @param data - buffer with data
+ * @param len - lenght of data
+ * @return crc16 value
+ */
+static u16 crc16(u8 *data, int len)
+{
+	u16 crc = 0xFFFF;
+	u8 i;
+
+	while(len--) {
+		crc ^= *data++ << 8;
+		for(i = 0; i < 8; i++)
+			crc = crc & 0x8000 ? ( crc << 1 ) ^ 0x1021 : crc << 1;
+	}
+
+	return crc;
+}
 
 /**
  * Callback timer with resolution 1ms
@@ -33,76 +57,9 @@ static int cer_frm_check_fcs(struct cer_frm *frm)
 {
 	u16 *crc_recv = (u16 *)(frm->data + CER_FRM_HDR_SIZE +
 				frm->payload_size);
-	u16 crc_calc = crc16(0, frm->data,
-			CER_FRM_HDR_SIZE + frm->payload_size);
-
+	u16 crc_calc = crc16(frm->data, CER_FRM_HDR_SIZE + frm->payload_size);
 	return (crc_calc == *crc_recv);
 }
-
-
-/**
- * Callback work for processing frames
- * @param cer_if - Cerium interface
- */
-static void cer_if_rx_work(struct cer_if *cer_if)
-{
-	struct cer_frm *frm = cer_if->processing_rx_frm;
-	struct cer_frm *start_frm = cer_if->rx_frames;
-	struct le *le;
-	u8 cer_type;
-	u8 *cer_payload;
-
-	if (!cer_if->rx_ready)
-		return;
-
-	cer_if->rx_ready = 0;
-
-	/* todo: processing received frames */
-	for(;;) {
-		cli();
-		frm = get_filled_frm(cer_if, 0);
-		sei();
-		if (!frm)
-			return;
-
-		if(!cer_frm_check_fcs(frm)) {
-			cer_if->cnt_frm_rx_crc_err++;
-			return;
-		}
-
-		/* Execute callbacks assigned for this cer_type */
-		cer_type = cer_frm_get_type(frm);
-		cer_payload = cer_frm_get_payload(frm);
-		LIST_FOREACH(&cer_if->list_rx_subscribers, le) {
-			struct cer_rx_handler *handler = list_ledata(le);
-			if (handler->cer_type == cer_type) {
-				handler->callback(handler->priv,
-						cer_payload, frm->payload_size);
-			}
-		}
-
-		cli();
-		frm->ready = 0;
-		sei();
-	}
-}
-
-
-/**
- * Push byte in cerium frame
- * @param frm - pointer to Cerium frame
- * @param byte
- * @return 0 if ok
- */
-static inline int ber_frm_push_byte(struct cer_frm *frm, u8 byte)
-{
-	if (frm->payload_size >= CER_FRM_MTU)
-		return -ENOSPC;
-
-	frm->data[frm->payload_size++] = byte;
-	return 0;
-}
-
 
 /**
  * Return empty frame
@@ -199,6 +156,69 @@ static struct cer_frm *get_filled_frm(struct cer_if *cer_if, int mode)
 
 
 /**
+ * Callback work for processing frames
+ * @param cer_if - Cerium interface
+ */
+static void cer_if_rx_work(struct cer_if *cer_if)
+{
+	struct cer_frm *frm = cer_if->processing_rx_frm;
+	struct le *le;
+	u8 cer_type;
+	u8 *cer_payload;
+
+	if (!cer_if->rx_ready)
+		return;
+
+	cer_if->rx_ready = 0;
+
+	/* todo: processing received frames */
+	for(;;) {
+		cli();
+		frm = get_filled_frm(cer_if, 0);
+		sei();
+		if (!frm)
+			return;
+
+		if(!cer_frm_check_fcs(frm)) {
+			cer_if->cnt_frm_rx_crc_err++;
+			return;
+		}
+
+		/* Execute callbacks assigned for this cer_type */
+		cer_type = cer_frm_get_type(frm);
+		cer_payload = cer_frm_get_payload(frm);
+		LIST_FOREACH(&cer_if->list_rx_subscribers, le) {
+			struct cer_rx_handler *handler = list_ledata(le);
+			if (handler->cer_type == cer_type) {
+				handler->callback(handler->priv,
+						cer_payload, frm->payload_size);
+			}
+		}
+
+		cli();
+		frm->ready = 0;
+		sei();
+	}
+}
+
+
+/**
+ * Push byte in cerium frame
+ * @param frm - pointer to Cerium frame
+ * @param byte
+ * @return 0 if ok
+ */
+static inline int ber_frm_push_byte(struct cer_frm *frm, u8 byte)
+{
+	if (frm->payload_size >= CER_FRM_MTU)
+		return -ENOSPC;
+
+	frm->data[frm->payload_size++] = byte;
+	return 0;
+}
+
+
+/**
  * IRQ callback for receive one byte from UART
  * @param cer_if - cer interface
  * @param rxb - received byte
@@ -290,21 +310,22 @@ int cerium_register(struct cer_if *cer_if, int uart_id, int uart_speed)
 
 	uart->chip_id = uart_id;
 	uart->baud_rate = uart_speed;
-	uart->rx_int = cer_receiver;
-	uart->udre_int = cer_transmitter;
+	uart->rx_int = (void (*)(void *, u8))cer_receiver;
+	uart->udre_int = (void (*)(void *))cer_transmitter;
 
 	cer_if->timer.devisor = 1;
 	cer_if->timer.priv = cer_if;
-	cer_if->timer.handler = cer_if_timer;
+	cer_if->timer.handler = (void (*)(void *))cer_if_timer;
 	sys_timer_add_handler(&cer_if->timer);
 
 	cer_if->wrk.priv = cer_if;
-	cer_if->wrk.handler = cer_if_rx_work;
+	cer_if->wrk.handler = (void (*)(void *))cer_if_rx_work;
 	sys_idle_add_handler(&cer_if->wrk);
 
 	rc = usart_init(uart);
 	if (rc)
 		return rc;
+	return 0;
 }
 
 /**
@@ -327,7 +348,7 @@ void cerium_add_rx_handler(struct cer_if *cer_if, struct cer_rx_handler *handler
  * @param size - size of payload data
  * @return 0 if ok
  */
-int cerium_send_frm(struct cer_if *cer_if, u8 type, u8 *data, u8 *size)
+int cerium_send_frm(struct cer_if *cer_if, u8 type, u8 *data, u8 size)
 {
 	struct cer_frm *frm;
 	int cnt, result_cnt = 0, frm_data_cnt = 0;
@@ -345,8 +366,8 @@ int cerium_send_frm(struct cer_if *cer_if, u8 type, u8 *data, u8 *size)
 	frm_data_cnt += size;
 
 	/* added FCS */
-	*crc = (u16 *)(frm_data + size);
-	*crc = crc16(0, frm_data, size);
+	crc = (u16 *)(frm_data + size);
+	*crc = crc16(frm_data, size);
 
 	/* doubling CER_FRM_MARK bytes in data */
 	for (cnt = 0; cnt < frm_data_cnt; cnt++) {

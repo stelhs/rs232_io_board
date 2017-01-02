@@ -27,5 +27,6 @@ int usart_init(struct uart *uart);
 
 u8 usart_get_byte(struct uart *uart);
 u8 usart_get_byte_blocked(struct uart *uart);
+int usart_send_byte(struct uart *uart, u8 byte);
 
 #endif /* UART_H_ */

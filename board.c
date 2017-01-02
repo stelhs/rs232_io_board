@@ -19,6 +19,7 @@
 #include "uart.h"
 #include "eeprom_fs.h"
 #include "io.h"
+#include "cerium.h"
 
 struct gpio gpio_list[] = {
 	/* List inputs */
