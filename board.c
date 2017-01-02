@@ -246,22 +246,25 @@ struct uart uart_debug = {
 	.fdev_type = 1
 };
 
-
-struct uart uart_pc = {
-	.chip_id = 1,
-	.baud_rate = 9600,
-	.fdev_type = 0
-};
+struct cer_if cer_if;
 
 
 /**
  * Init board hardware
  */
-static void board_init(void)
+static int board_init(void)
 {
+	int rc;
+
 	sys_timer_init();
-	usart_init(&uart_debug);
-	usart_init(&uart_pc);
+
+	rc = usart_init(&uart_debug);
+	if (!rc)
+		return rc;
+
+	rc = cerium_register(&cer_if, 1, 9600);
+	if (!rc)
+		return rc;
 
 	gpio_register_list(gpio_list);
 	gpio_debouncer_register_list_inputs(line_inputs);
