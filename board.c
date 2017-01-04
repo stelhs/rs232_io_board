@@ -6,6 +6,7 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 #include <avr/wdt.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
@@ -283,7 +284,9 @@ static int board_init(void)
 //	wdt_enable(WDTO_2S);
 
 	sei();
+	return 0;
 }
+
 
 struct sys_work debug_wrk;
 static void scan_keycode(void *arg)
@@ -324,12 +327,12 @@ static void scan_keycode(void *arg)
 
 	case 's': {
 		struct nmea_msg msg;
-		msg->ti = NMEA_TI_IO;
-		msg->si = NMEA_SI_AIP;
-		strcpy(msg->argv[1], "5");
-		strcpy(msg->argv[2], "1");
-		msg->argc = 2;
-		rc = nmea_send_msg(&msg);
+		msg.ti = NMEA_TI_IO;
+		msg.si = NMEA_SI_AIP;
+		strcpy(msg.argv[1], "5");
+		strcpy(msg.argv[2], "1");
+		msg.argc = 2;
+		rc = nmea_send_msg(&nmea_if, &msg);
 		printf("nmea_send_msg, rc=%d\r\n", rc);
 		} break;
 	}
