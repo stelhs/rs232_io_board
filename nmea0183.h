@@ -28,7 +28,7 @@ enum nmea_sentence_identifiers {
 };
 
 struct nmea_msg {
-	u8 msg_buf[48];
+	char msg_buf[48];
 	int buf_len;
 	bool ready :1;
 	enum nmea_talkers_identifiers ti;
@@ -40,16 +40,16 @@ struct nmea_msg {
 struct nmea_if {
 	struct uart uart; /* UART controller descriptor */
 	struct sys_work wrk; /* work descriptor */
-	volatile u8 tx_cnt; /* trannsmit byte counter in current buffer (curr_tx_msg) */
-	struct cer_frm rx_messages[NMEA_MSG_RING_SIZE]; /* ring buffer for rx frames */
-	struct cer_frm tx_messages[NMEA_MSG_RING_SIZE]; /* ring buffer for tx frames */
-	struct cer_frm *curr_rx_msg; /* current receiving rx buffer */
-	struct cer_frm *processing_rx_msg; /* current processing rx buffer */
-	struct cer_frm *curr_tx_msg; /* current processing tx buffer */
-	struct cer_frm *processing_tx_msg; /* current processing tx buffer */
+	volatile u8 tx_cnt; /* transmit byte counter in current buffer (curr_tx_msg) */
+	struct nmea_msg rx_messages[NMEA_MSG_RING_SIZE]; /* ring buffer for rx frames */
+	struct nmea_msg tx_messages[NMEA_MSG_RING_SIZE]; /* ring buffer for tx frames */
+	struct nmea_msg *curr_rx_msg; /* current receiving rx buffer */
+	struct nmea_msg *processing_rx_msg; /* current processing rx buffer */
+	struct nmea_msg *curr_tx_msg; /* current processing tx buffer */
+	struct nmea_msg *processing_tx_msg; /* current processing tx buffer */
 	void (*rx_msg_handler)(struct nmea_msg *);
 
-	u8 rx_cr: 1; /* Receive '\r' symbol */
+	volatile u8 rx_cr: 1; /* Receive '\r' symbol */
 	volatile u8 tx_running : 1; /* flag is set when transmitter is running */
 	volatile u8 rx_ready: 1; /* flag is set, if new frame was received */
 
@@ -60,7 +60,8 @@ struct nmea_if {
 	u16 cnt_rx_bytes;
 };
 
-int nmea_register(struct nmea_if *nmea_if, int uart_id, int uart_speed);
+int nmea_register(struct nmea_if *nmea_if, int uart_id, int uart_speed,
+				void (*rx_msg_handler)(struct nmea_msg *));
 int nmea_send_msg(struct nmea_if *nmea_if, struct nmea_msg *sending_msg);
 
 #endif /* NMEA0183_H_ */

@@ -6,7 +6,7 @@
  */
 
 /*
- * cerium.c
+ * nmea0183.c
  *
  *  Created on: 29 дек. 2016 г.
  *      Author: Michail Kurochkin
@@ -21,18 +21,18 @@
 #include "nmea0183.h"
 
 
-static char nmea_ti_names[] = {
-		{"IO"},
-		{"PC"},
-		{""},
+static char *nmea_ti_names[] = {
+		"IO",
+		"PC",
+		"",
 };
 
-static char nmea_si_names[] = {
-		{"RWS"},
-		{"RRS"},
-		{"RIP"},
-		{"AIP"},
-		{""},
+static char *nmea_si_names[] = {
+		"RWS",
+		"RRS",
+		"RIP",
+		"AIP",
+		"",
 };
 
 
@@ -42,7 +42,7 @@ static char nmea_si_names[] = {
  * @param len
  * @return checksum
  */
-static u8 calc_checksum(u8 *buf, u8 len)
+static u8 calc_checksum(char *buf, u8 len)
 {
 	int i;
 	u8 checksum = 0;
@@ -51,137 +51,6 @@ static u8 calc_checksum(u8 *buf, u8 len)
 		checksum += buf[i];
 
 	return checksum;
-}
-
-
-/**
- * Parse incomming NMEA message
- * @param msg - received NMEA message
- * @return 0 if ok
- */
-static int nmea_parse(struct nmea_msg *msg)
-{
-	char *ti_name;
-	int i, rc;
-	int len;
-	char b;
-	int cs_argc_num = -1; // checksumm argument number
-	int cs_pos = -1;
-	int cnt = 0;
-	int pos = 0;
-
-	memset(msg->argv, 0, sizeof(msg->argv));
-
-	/* split message by ','. Filling argv[] */
-	for (i = 0; i < msg->buf_len; i++) {
-		b = msg->msg_buf[i];
-		switch (b) {
-		case ',':
-			msg->argc++;
-			cnt = 0;
-			continue;
-		case '*':
-			cs_argc_num = ++msg->argc;
-			cs_pos = i;
-			cnt = 0;
-			continue;
-		default:
-			msg->argv[msg->argc][cnt++] = b;
-		}
-	}
-
-	/* if no arguments was found */
-	if (!msg->argc)
-		return -EPARSE;
-
-	/* if checksum is present then match checksum */
-	if (cs_argc_num > 0) {
-		int received_checksum;
-		u8 calculated_checksum = calc_checksum(msg->msg_buf, cs_pos);
-
-		rc = sscanf(msg->argv[cs_argc_num], "%x", &received_checksum);
-		if (!rc)
-			return -EPARSE;
-
-		if ((u8)received_checksum != calculated_checksum)
-			return -EPARSE;
-
-		msg->argc--; // remove checksum argument
-	}
-
-	/* parse first argument*/
-
-	/* detect talkers identifier */
-	for (i = 0;; i++){
-		len = strlen(nmea_ti_names[i]);
-		if (!len)
-			return -EPARSE;
-
-		rc = memcpy(msg->argv[0], nmea_ti_names[i], len);
-		if (!rc) {
-			msg->ti = i;
-			pos += len;
-			break;
-		}
-	}
-
-	/* detect sentence identifier */
-	for (i = 0; ; i++){
-		len = strlen(nmea_si_names[i]);
-		if (!len)
-			return -EPARSE;
-
-		rc = memcpy(msg->argv[0] + pos, nmea_si_names[i], len);
-		if (!rc) {
-			msg->si = i;
-			pos += len;
-			break;
-		}
-	}
-
-	return 0;
-}
-
-/**
- * Callback work for processing incomming messages
- * @param nmea_if - NMEA interface
- */
-static void nmea_if_rx_work(struct nmea_if *nmea_if)
-{
-	struct nmea_msg *msg = nmea_if->processing_rx_msg;
-	struct le *le;
-	int rc;
-
-	if (!nmea_if->rx_ready)
-		return;
-
-	nmea_if->rx_ready = 0;
-
-	/* todo: processing received NMEA messages */
-	for(;;) {
-		cli();
-		msg = get_filled_buf(nmea_if, 0);
-		sei();
-		if (!msg)
-			return;
-
-
-		rc = nmea_parse(msg);
-		if (rc) {
-			nmea_if->cnt_checksumm_err++;
-			continue;
-		}
-
-		if (nmea_if->rx_msg_handler)
-			nmea_if->rx_msg_handler(msg);
-
-		cli();
-		msg->ready = 0;
-		msg->si = msg->ti = -1;
-		msg->buf_len = 0;
-		sei();
-	}
-
 }
 
 
@@ -201,8 +70,8 @@ static struct nmea_msg *get_empty_buf(struct nmea_if *nmea_if, int mode)
 		start_msg = nmea_if->rx_messages;
 		break;
 	case 1:
-		curr_msg = cer_if->curr_tx_frm;
-		start_msg = cer_if->tx_frames;
+		curr_msg = nmea_if->curr_tx_msg;
+		start_msg = nmea_if->tx_messages;
 		break;
 	default:
 		return NULL;
@@ -280,6 +149,135 @@ static struct nmea_msg *get_filled_buf(struct nmea_if *nmea_if, int mode)
 
 
 /**
+ * Parse incomming NMEA message
+ * @param msg - received NMEA message
+ * @return 0 if ok
+ */
+static int nmea_parse(struct nmea_msg *msg)
+{
+	int i, rc;
+	int len;
+	char b;
+	int cs_argc_num = -1; // checksumm argument number
+	int cs_pos = -1;
+	int cnt = 0;
+	int pos = 0;
+
+	memset(msg->argv, 0, sizeof(msg->argv));
+
+	/* split message by ','. Filling argv[] */
+	for (i = 0; i < msg->buf_len; i++) {
+		b = msg->msg_buf[i];
+		switch (b) {
+		case ',':
+			msg->argc++;
+			cnt = 0;
+			continue;
+		case '*':
+			cs_argc_num = ++msg->argc;
+			cs_pos = i;
+			cnt = 0;
+			continue;
+		default:
+			msg->argv[msg->argc][cnt++] = b;
+		}
+	}
+
+	/* if no arguments was found */
+	if (!msg->argc)
+		return -EPARSE;
+
+	/* if checksum is present then match checksum */
+	if (cs_argc_num > 0) {
+		int received_checksum;
+		u8 calculated_checksum = calc_checksum(msg->msg_buf, cs_pos);
+
+		rc = sscanf(msg->argv[cs_argc_num], "%x", &received_checksum);
+		if (!rc)
+			return -EPARSE;
+
+		if ((u8)received_checksum != calculated_checksum)
+			return -EPARSE;
+
+		msg->argc--; // remove checksum argument
+	}
+
+	/* parse first argument*/
+
+	/* detect talkers identifier */
+	for (i = 0;; i++){
+		len = strlen(nmea_ti_names[i]);
+		if (!len)
+			return -EPARSE;
+
+		rc = memcmp(msg->argv[0], nmea_ti_names[i], len);
+		if (!rc) {
+			msg->ti = i;
+			pos += len;
+			break;
+		}
+	}
+
+	/* detect sentence identifier */
+	for (i = 0; ; i++){
+		len = strlen(nmea_si_names[i]);
+		if (!len)
+			return -EPARSE;
+
+		rc = memcmp(msg->argv[0] + pos, nmea_si_names[i], len);
+		if (!rc) {
+			msg->si = i;
+			pos += len;
+			break;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Callback work for processing incomming messages
+ * @param nmea_if - NMEA interface
+ */
+static void nmea_if_rx_work(struct nmea_if *nmea_if)
+{
+	struct nmea_msg *msg = nmea_if->processing_rx_msg;
+	int rc;
+
+	if (!nmea_if->rx_ready)
+		return;
+
+	nmea_if->rx_ready = 0;
+
+	/* todo: processing received NMEA messages */
+	for(;;) {
+		cli();
+		msg = get_filled_buf(nmea_if, 0);
+		sei();
+		if (!msg)
+			return;
+
+
+		rc = nmea_parse(msg);
+		if (rc) {
+			nmea_if->cnt_checksumm_err++;
+			continue;
+		}
+
+		if (nmea_if->rx_msg_handler)
+			nmea_if->rx_msg_handler(msg);
+
+		cli();
+		msg->ready = 0;
+		msg->si = msg->ti = -1;
+		msg->buf_len = 0;
+		sei();
+	}
+
+}
+
+
+/**
  * IRQ callback for receive one byte from UART
  * @param nmea_if - nmea interface
  * @param rxb - received byte
@@ -328,7 +326,7 @@ static void nmea_receiver(struct nmea_if *nmea_if, u8 rxb)
 
 /**
  * IRQ callback for transmit one byte into UART
- * @param cer_if - cer interface
+ * @param mea_if - NMEA interface
  */
 static void nmea_transmitter(struct nmea_if *nmea_if)
 {
@@ -360,7 +358,7 @@ static void nmea_transmitter(struct nmea_if *nmea_if)
  * @param result_buf - pointer for builded text message
  * @return 0 if ok
  */
-static int build_nmea_msg(struct nmea_msg *msg, u8 *result_buf)
+static int build_nmea_msg(struct nmea_msg *msg, char *result_buf)
 {
 	int pos = 0;
 	int len;
@@ -403,7 +401,7 @@ static int build_nmea_msg(struct nmea_msg *msg, u8 *result_buf)
 	}
 
 	calculated_checksum = calc_checksum(result_buf + 1, pos - 1);
-	sprintf(result_buf + pos, "*%x\r\n", calculated_checksum);
+	sprintf((char *)result_buf + pos, "*%x\r\n", (int)calculated_checksum);
 
 	return 0;
 }
@@ -411,10 +409,8 @@ static int build_nmea_msg(struct nmea_msg *msg, u8 *result_buf)
 
 /**
  * Send frame into a RS-485 bus
- * @param cer_if - pointer to allocated memory
- * @param type - cer_type
- * @param data - payload data pointer
- * @param size - size of payload data
+ * @param nmea_if - NMEA interface
+ * @param sending_msg - nmea message descriptor
  * @return 0 if ok
  */
 int nmea_send_msg(struct nmea_if *nmea_if, struct nmea_msg *sending_msg)
@@ -423,7 +419,7 @@ int nmea_send_msg(struct nmea_if *nmea_if, struct nmea_msg *sending_msg)
 	int rc;
 
 	cli();
-	msg = get_empty_frm(nmea_if, 1);
+	msg = get_empty_buf(nmea_if, 1);
 	sei();
 	if (!msg) {
 		nmea_if->cnt_tx_ring_overflow++;
