@@ -19,7 +19,7 @@
 #include "uart.h"
 #include "eeprom_fs.h"
 #include "io.h"
-#include "cerium.h"
+#include "nmea0183.h"
 
 struct gpio gpio_list[] = {
 	/* List inputs */
@@ -247,7 +247,12 @@ struct uart uart_debug = {
 	.fdev_type = 1
 };
 
-struct cer_if cer_if;
+
+struct nmea_if nmea_if;
+void nmea_rx_msg(struct nmea_msg *msg)
+{
+	printf("msg RX!\r\n");
+}
 
 
 /**
@@ -263,7 +268,7 @@ static int board_init(void)
 	if (!rc)
 		return rc;
 
-	rc = cerium_register(&cer_if, 1, 9600);
+	rc = nmea_register(&nmea_if, 1, 9600, nmea_rx_msg);
 	if (!rc)
 		return rc;
 
@@ -284,6 +289,7 @@ struct sys_work debug_wrk;
 static void scan_keycode(void *arg)
 {
 	char key;
+	int rc;
 	key = usart_get_byte(&uart_debug);
 	if (!key)
 		return;
@@ -307,8 +313,29 @@ static void scan_keycode(void *arg)
 
 	case '6': relay_set_state(6, 1); break;
 	case '^': relay_set_state(6, 0); break;
+
+	case 'q':
+		printf("cnt_rx_bytes=%d\r\n", nmea_if.cnt_rx_bytes);
+		printf("cnt_msg_rx=%d\r\n", nmea_if.cnt_msg_rx);
+		printf("cnt_checksumm_err=%d\r\n", nmea_if.cnt_checksumm_err);
+		printf("cnt_rx_ring_overflow=%d\r\n", nmea_if.cnt_rx_ring_overflow);
+		printf("cnt_tx_ring_overflow=%d\r\n", nmea_if.cnt_tx_ring_overflow);
+		break;
+
+	case 's': {
+		struct nmea_msg msg;
+		msg->ti = NMEA_TI_IO;
+		msg->si = NMEA_SI_AIP;
+		strcpy(msg->argv[1], "5");
+		strcpy(msg->argv[2], "1");
+		msg->argc = 2;
+		rc = nmea_send_msg(&msg);
+		printf("nmea_send_msg, rc=%d\r\n", rc);
+		} break;
 	}
+
 }
+
 
 int main(void)
 {
