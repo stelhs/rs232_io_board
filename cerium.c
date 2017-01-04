@@ -381,7 +381,7 @@ int cerium_send_frm(struct cer_if *cer_if, u8 type, u8 *data, u8 size)
 	frm->payload_size = result_cnt;
 	cli();
 	frm->ready = 1;
-	cer_if->rx_ready = 1;
+	cer_if->tx_ready = 1;
 
 	/* start transmitter */
 	if (!cer_if->tx_running)

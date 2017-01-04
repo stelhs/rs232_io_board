@@ -13,7 +13,7 @@
 #include "idle.h"
 #include "list.h"
 
-#define CER_FRM_MTU 8 /* Frame MTU size */
+#define CER_FRM_MTU 16 /* Frame MTU size */
 #define CER_FRM_MARK 0x53 /* Frame's delimiter Marker value */
 #define CER_FRM_HDR_SIZE 1 /* Header size */
 #define CER_FRM_FCB_SIZE 2 /* Size of FCB tail (use crc16) */
