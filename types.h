@@ -40,6 +40,7 @@ typedef u32 t_counter;
 #define	ENOSPC		28	/* No space left on device */
 #define	ENODATA		61	/* No data available */
 #define	ECORRUPT	129	/* Data is corrupted */
+#define	EPARSE		137	/* Invalid Parsing */
 
 
 
