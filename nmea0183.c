@@ -288,6 +288,8 @@ static void nmea_receiver(struct nmea_if *nmea_if, u8 rxb)
 {
 	struct nmea_msg *msg = nmea_if->curr_rx_msg;
 
+	nmea_if->cnt_rx_bytes++;
+
 	switch (rxb) {
 	case '$':
 		msg->buf_len = 0;
@@ -302,13 +304,13 @@ static void nmea_receiver(struct nmea_if *nmea_if, u8 rxb)
 			return;
 		nmea_if->rx_cr = 0;
 
-		nmea_if->cnt_frm_rx++;
+		nmea_if->cnt_msg_rx++;
 		msg->ready = 1;
 		nmea_if->rx_ready = 1;
 
 		msg = get_empty_buf(nmea_if, 0);
 		if (!msg) {
-			nmea_if->cnt_not_memory++;
+			nmea_if->cnt_rx_ring_overflow++;
 			return;
 		}
 		break;
@@ -423,13 +425,16 @@ int nmea_send_msg(struct nmea_if *nmea_if, struct nmea_msg *sending_msg)
 	cli();
 	msg = get_empty_frm(nmea_if, 1);
 	sei();
-	if (!msg)
+	if (!msg) {
+		nmea_if->cnt_tx_ring_overflow++;
 		return -ENOSPC;
+	}
 
 	rc = build_nmea_msg(sending_msg, msg->msg_buf);
 	if (rc)
 		return rc;
 
+	printf("msg->msg_buf = %s\r\n", msg->msg_buf);
 	msg->buf_len = strlen(msg->msg_buf);
 
 	cli();
@@ -452,22 +457,24 @@ int nmea_send_msg(struct nmea_if *nmea_if, struct nmea_msg *sending_msg)
  * @param uart_speed - speed in bod per second
  * @return 0 if ok
  */
-int nmea_register(struct nmea_if *nmea_if, int uart_id, int uart_speed)
+int nmea_register(struct nmea_if *nmea_if, int uart_id, int uart_speed,
+			void (*rx_msg_handler)(struct nmea_msg *))
 {
 	struct uart *uart = &nmea_if->uart;
 	int rc;
 
 	memset(nmea_if, 0, sizeof (*nmea_if));
 	nmea_if->curr_rx_msg = nmea_if->processing_rx_msg = nmea_if->rx_messages;
+	nmea_if->rx_msg_handler = rx_msg_handler;
 
 	uart->chip_id = uart_id;
 	uart->baud_rate = uart_speed;
 	uart->rx_int = (void (*)(void *, u8))nmea_receiver;
 	uart->udre_int = (void (*)(void *))nmea_transmitter;
 
-	cer_if->wrk.priv = cer_if;
-	cer_if->wrk.handler = (void (*)(void *))nmea_if_rx_work;
-	sys_idle_add_handler(&cer_if->wrk);
+	nmea_if->wrk.priv = nmea_if;
+	nmea_if->wrk.handler = (void (*)(void *))nmea_if_rx_work;
+	sys_idle_add_handler(&nmea_if->wrk);
 
 	rc = usart_init(uart);
 	if (rc)

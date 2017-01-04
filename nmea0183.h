@@ -21,10 +21,10 @@ enum nmea_talkers_identifiers {
 
 enum nmea_sentence_identifiers {
 	NMEA_SI_UNDEFINED = -1,
-	RWS, // (Relay Write State) Write Relay on/off
-	RRS, // (Relay Read State) Read Relay state
-	RIP, // (Request Input Port) Request input port state
-	AIP, // (Action on Input Port)
+	NMEA_SI_RWS, // (Relay Write State) Write Relay on/off
+	NMEA_SI_RRS, // (Relay Read State) Read Relay state
+	NMEA_SI_RIP, // (Request Input Port) Request input port state
+	NMEA_SI_AIP, // (Action on Input Port)
 };
 
 struct nmea_msg {
@@ -53,9 +53,11 @@ struct nmea_if {
 	volatile u8 tx_running : 1; /* flag is set when transmitter is running */
 	volatile u8 rx_ready: 1; /* flag is set, if new frame was received */
 
-	u16 cnt_frm_rx;
-	u16 cnt_not_memory;
+	u16 cnt_msg_rx;
+	u16 cnt_rx_ring_overflow;
+	u16 cnt_tx_ring_overflow;
 	u16 cnt_checksumm_err;
+	u16 cnt_rx_bytes;
 };
 
 int nmea_register(struct nmea_if *nmea_if, int uart_id, int uart_speed);
