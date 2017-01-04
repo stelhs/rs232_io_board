@@ -6,7 +6,7 @@ CFLAGS = -Wall -DF_CPU=8000000 -I/usr/lib/avr/include \
 
 OBJ = board.o gpio.o gpio_keys.o gpio_debouncer.o \
  idle.o leds.o list.o sys_timer.o uart_atmega128.o \
- logic.o eeprom_fs.o io.o cerium.o
+ logic.o eeprom_fs.o io.o nmea0183.o
 
 .PHONY: all clean program fuse
 
@@ -17,7 +17,7 @@ $(EXEC): $(OBJ)
 
 $(OBJ): config.h types.h gpio.h gpio_debouncer.h \
  gpio_keys.h uart.h list.h sys_timer.h idle.h board.h \
- types.h eeprom_fs.h io.h cerium.h
+ types.h eeprom_fs.h io.h nmea0183.h
 
 clean:
 	rm -rf *.o $(EXEC)
