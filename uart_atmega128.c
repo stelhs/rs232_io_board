@@ -75,6 +75,14 @@ static char serial_in(void)
 	return *console_regs->udr;
 }
 
+void usart_disable_udre_irq(struct uart *uart) {
+	*uart->regs->ucsrb &= ~(1 << UDRIE);
+}
+
+void usart_enable_udre_irq(struct uart *uart) {
+	*uart->regs->ucsrb |= (1 << UDRIE);
+}
+
 
 int usart_init(struct uart *uart)
 {
@@ -129,12 +137,13 @@ ISR(USART0_TX_vect)
 
 ISR(USART0_UDRE_vect)
 {
+	usart_disable_udre_irq(uarts[0]);
 	uarts[0]->udre_int(uarts[0]->priv);
 }
 
 ISR(USART1_RX_vect)
 {
-	uarts[1]->rx_int(uarts[1]->priv, *uarts[0]->regs->udr);
+	uarts[1]->rx_int(uarts[1]->priv, *uarts[1]->regs->udr);
 }
 
 ISR(USART1_TX_vect)
@@ -144,5 +153,6 @@ ISR(USART1_TX_vect)
 
 ISR(USART1_UDRE_vect)
 {
+	usart_disable_udre_irq(uarts[1]);
 	uarts[1]->udre_int(uarts[1]->priv);
 }
