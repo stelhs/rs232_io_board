@@ -12,6 +12,7 @@
 #include "idle.h"
 
 #define NMEA_MSG_RING_SIZE 8 /* Number of RX/TX ring buffers */
+#define NMEA_MSG_MAX_LEN 48 /* NMEA message max length */
 
 enum nmea_talkers_identifiers {
 	NMEA_TI_UNDEFINED = -1,
@@ -28,7 +29,7 @@ enum nmea_sentence_identifiers {
 };
 
 struct nmea_msg {
-	char msg_buf[48];
+	char msg_buf[NMEA_MSG_MAX_LEN];
 	int buf_len;
 	bool ready :1;
 	enum nmea_talkers_identifiers ti;
@@ -49,8 +50,7 @@ struct nmea_if {
 	struct nmea_msg *processing_tx_msg; /* current processing tx buffer */
 	void (*rx_msg_handler)(struct nmea_msg *);
 
-	volatile u8 rx_cr: 1; /* Receive '\r' symbol */
-	volatile u8 tx_running : 1; /* flag is set when transmitter is running */
+	volatile u8 rx_carry: 1; /* Receive '\r' or '\n' symbol */
 	volatile u8 rx_ready: 1; /* flag is set, if new frame was received */
 
 	u16 cnt_msg_rx;
@@ -58,10 +58,12 @@ struct nmea_if {
 	u16 cnt_tx_ring_overflow;
 	u16 cnt_checksumm_err;
 	u16 cnt_rx_bytes;
+	u16 cnt_rx_overflow;
 };
 
 int nmea_register(struct nmea_if *nmea_if, int uart_id, int uart_speed,
 				void (*rx_msg_handler)(struct nmea_msg *));
+void nmea_msg_reset(struct nmea_msg *msg);
 int nmea_send_msg(struct nmea_if *nmea_if, struct nmea_msg *sending_msg);
 
 #endif /* NMEA0183_H_ */

@@ -55,6 +55,18 @@ static u8 calc_checksum(char *buf, u8 len)
 
 
 /**
+ * Reset nmea_msg descriptor for succeeding use
+ * @param msg - NMEA message descriptor
+ */
+void nmea_msg_reset(struct nmea_msg *msg)
+{
+	memset(msg, 0, sizeof(*msg));
+	msg->si = msg->ti = -1;
+	msg->buf_len = -1;
+}
+
+
+/**
  * Return empty buffer
  * @param nmea_if - NMEA interface
  * @param mode - 0: rx path, 1: tx path
@@ -79,12 +91,10 @@ static struct nmea_msg *get_empty_buf(struct nmea_if *nmea_if, int mode)
 
 	msg = curr_msg;
 
-	if (!msg->ready) {
-		msg->buf_len = 0;
+	if (!msg->ready)
 		return msg;
-	}
 
-	while (msg != (curr_msg - 1)) {
+	do {
 		msg ++;
 		if (msg >= (start_msg + NMEA_MSG_RING_SIZE))
 			msg = start_msg;
@@ -96,7 +106,7 @@ static struct nmea_msg *get_empty_buf(struct nmea_if *nmea_if, int mode)
 			}
 			return msg;
 		}
-	}
+	} while (msg != curr_msg);
 
 	return NULL;
 }
@@ -130,19 +140,19 @@ static struct nmea_msg *get_filled_buf(struct nmea_if *nmea_if, int mode)
 	if (msg->ready)
 		return msg;
 
-	while (msg != (curr_msg - 1)) {
+	do {
 		msg ++;
 		if (msg >= (start_msg + NMEA_MSG_RING_SIZE))
 			msg = start_msg;
+
 		if (msg->ready) {
-			msg->buf_len = 0;
 			switch (mode) {
 			case 0: nmea_if->processing_rx_msg = msg; break;
 			case 1: nmea_if->processing_tx_msg = msg; break;
 			}
 			return msg;
 		}
-	}
+	} while (msg != curr_msg);
 
 	return NULL;
 }
@@ -162,10 +172,13 @@ static int nmea_parse(struct nmea_msg *msg)
 	int cs_pos = -1;
 	int cnt = 0;
 	int pos = 0;
+	int first;
 
 	memset(msg->argv, 0, sizeof(msg->argv));
+	msg->argc = 0;
 
 	/* split message by ','. Filling argv[] */
+	first = 1;
 	for (i = 0; i < msg->buf_len; i++) {
 		b = msg->msg_buf[i];
 		switch (b) {
@@ -179,7 +192,11 @@ static int nmea_parse(struct nmea_msg *msg)
 			cnt = 0;
 			continue;
 		default:
-			msg->argv[msg->argc][cnt++] = b;
+			if (first) {
+				msg->argc++;
+				first = 0;
+			}
+			msg->argv[msg->argc - 1][cnt++] = b;
 		}
 	}
 
@@ -257,9 +274,11 @@ static void nmea_if_rx_work(struct nmea_if *nmea_if)
 		if (!msg)
 			return;
 
-
 		rc = nmea_parse(msg);
 		if (rc) {
+			cli();
+			nmea_msg_reset(msg);
+			sei();
 			nmea_if->cnt_checksumm_err++;
 			continue;
 		}
@@ -268,9 +287,7 @@ static void nmea_if_rx_work(struct nmea_if *nmea_if)
 			nmea_if->rx_msg_handler(msg);
 
 		cli();
-		msg->ready = 0;
-		msg->si = msg->ti = -1;
-		msg->buf_len = 0;
+		nmea_msg_reset(msg);
 		sei();
 	}
 
@@ -288,22 +305,23 @@ static void nmea_receiver(struct nmea_if *nmea_if, u8 rxb)
 
 	nmea_if->cnt_rx_bytes++;
 
+	if (msg->ready)
+		return;
+
 	switch (rxb) {
 	case '$':
+		nmea_if->rx_carry = 0;
 		msg->buf_len = 0;
 		return;
 
 	case '\r':
-		nmea_if->rx_cr = 1;
-		return;
-
 	case '\n':
-		if (!nmea_if->rx_cr)
+		if (nmea_if->rx_carry)
 			return;
-		nmea_if->rx_cr = 0;
 
 		nmea_if->cnt_msg_rx++;
 		msg->ready = 1;
+		nmea_if->rx_carry = 1;
 		nmea_if->rx_ready = 1;
 
 		msg = get_empty_buf(nmea_if, 0);
@@ -314,9 +332,15 @@ static void nmea_receiver(struct nmea_if *nmea_if, u8 rxb)
 		break;
 
 	default:
-		nmea_if->rx_cr = 0;
+		nmea_if->rx_carry = 0;
 		if (msg->buf_len == -1)
 			return;
+
+		if (msg->buf_len >= NMEA_MSG_MAX_LEN) {
+			msg->buf_len = -1;
+			nmea_if->cnt_rx_overflow++;
+			return;
+		}
 
 		msg->msg_buf[msg->buf_len++] = rxb;
 		return;
@@ -332,23 +356,21 @@ static void nmea_transmitter(struct nmea_if *nmea_if)
 {
 	struct nmea_msg *msg = nmea_if->curr_tx_msg;
 
-	if (nmea_if->tx_cnt >= msg->buf_len) {
-		msg->ready = 0;
-		msg->si = msg->ti = -1;
-		msg->buf_len = 0;
-		nmea_if->tx_cnt = 0;
-	}
-
 	if (!msg->ready)
 		msg = get_filled_buf(nmea_if, 1);
 
-	if (!msg) {
-		nmea_if->tx_running = 0;
+	if (!msg)
+		return;
+
+	if (nmea_if->tx_cnt >= msg->buf_len) {
+		nmea_msg_reset(msg);
+		nmea_if->tx_cnt = 0;
+		usart_enable_udre_irq(&nmea_if->uart);
 		return;
 	}
 
 	usart_send_byte(&nmea_if->uart, msg->msg_buf[nmea_if->tx_cnt++]);
-	nmea_if->tx_running = 1;
+	usart_enable_udre_irq(&nmea_if->uart);
 }
 
 
@@ -430,17 +452,14 @@ int nmea_send_msg(struct nmea_if *nmea_if, struct nmea_msg *sending_msg)
 	if (rc)
 		return rc;
 
-	printf("msg->msg_buf = %s\r\n", msg->msg_buf);
 	msg->buf_len = strlen(msg->msg_buf);
 
 	cli();
 	msg->ready = 1;
-
-	/* attempt to start transmitter */
-	if (!nmea_if->tx_running)
-		nmea_transmitter(nmea_if);
 	sei();
 
+	/* attempt to start transmitter */
+	usart_enable_udre_irq(&nmea_if->uart);
 	return 0;
 }
 
@@ -458,15 +477,25 @@ int nmea_register(struct nmea_if *nmea_if, int uart_id, int uart_speed,
 {
 	struct uart *uart = &nmea_if->uart;
 	int rc;
+	int i;
 
 	memset(nmea_if, 0, sizeof (*nmea_if));
+
+	/* Reset ring buffers */
+	for (i = 0; i < NMEA_MSG_RING_SIZE; i++) {
+		nmea_msg_reset(nmea_if->rx_messages + i);
+		nmea_msg_reset(nmea_if->tx_messages + i);
+	}
+
 	nmea_if->curr_rx_msg = nmea_if->processing_rx_msg = nmea_if->rx_messages;
+	nmea_if->curr_tx_msg = nmea_if->processing_tx_msg = nmea_if->tx_messages;
 	nmea_if->rx_msg_handler = rx_msg_handler;
 
 	uart->chip_id = uart_id;
 	uart->baud_rate = uart_speed;
 	uart->rx_int = (void (*)(void *, u8))nmea_receiver;
 	uart->udre_int = (void (*)(void *))nmea_transmitter;
+	uart->priv = nmea_if;
 
 	nmea_if->wrk.priv = nmea_if;
 	nmea_if->wrk.handler = (void (*)(void *))nmea_if_rx_work;
