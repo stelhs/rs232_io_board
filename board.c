@@ -252,7 +252,16 @@ struct uart uart_debug = {
 struct nmea_if nmea_if;
 void nmea_rx_msg(struct nmea_msg *msg)
 {
-	printf("msg RX!\r\n");
+	int i;
+	printf("RX MSG!\r\n");
+	printf("msg->argc=%d\r\n", msg->argc);
+	printf("msg->ti=%d\r\n", msg->ti);
+	printf("msg->si=%d\r\n", msg->si);
+
+	for (i = 0; i < msg->argc; i++) {
+		printf("msg->argv[%d]=(%s)\r\n", i, msg->argv[i]);
+	}
+	printf("\r\n");
 }
 
 
@@ -266,11 +275,11 @@ static int board_init(void)
 	sys_timer_init();
 
 	rc = usart_init(&uart_debug);
-	if (!rc)
+	if (rc)
 		return rc;
 
 	rc = nmea_register(&nmea_if, 1, 9600, nmea_rx_msg);
-	if (!rc)
+	if (rc)
 		return rc;
 
 	gpio_register_list(gpio_list);
@@ -327,6 +336,7 @@ static void scan_keycode(void *arg)
 
 	case 's': {
 		struct nmea_msg msg;
+		nmea_msg_reset(&msg);
 		msg.ti = NMEA_TI_IO;
 		msg.si = NMEA_SI_AIP;
 		strcpy(msg.argv[1], "5");
@@ -334,6 +344,14 @@ static void scan_keycode(void *arg)
 		msg.argc = 2;
 		rc = nmea_send_msg(&nmea_if, &msg);
 		printf("nmea_send_msg, rc=%d\r\n", rc);
+		} break;
+
+	case 'v': {
+		int i;
+		char *test_msg = "$Hello world!!!\r\n";
+		for (i = 0; i < strlen(test_msg); i++)
+			usart_send_byte(&nmea_if.uart, test_msg[i]);
+
 		} break;
 	}
 
