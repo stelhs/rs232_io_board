@@ -8,7 +8,7 @@
 #ifndef CONFIG_H_
 #define CONFIG_H_
 
-
+#define CONFIG_MODULE_IO_WDT
 
 
 #endif /* CONFIG_H_ */
