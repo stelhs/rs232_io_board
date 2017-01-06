@@ -23,9 +23,12 @@ enum nmea_talkers_identifiers {
 enum nmea_sentence_identifiers {
 	NMEA_SI_UNDEFINED = -1,
 	NMEA_SI_RWS, // (Relay Write State) Write Relay on/off
-	NMEA_SI_RRS, // (Relay Read State) Read Relay state
+	NMEA_SI_RRS, // (Request Relay Read State) Read Relay state
 	NMEA_SI_RIP, // (Request Input Port) Request input port state
 	NMEA_SI_AIP, // (Action on Input Port)
+	NMEA_SI_SOP, // (State Output Port)
+	NMEA_SI_WDS, // (WDT State ON/OFF)
+	NMEA_SI_WRS, // (WDT Reset)
 };
 
 struct nmea_msg {
@@ -48,7 +51,8 @@ struct nmea_if {
 	struct nmea_msg *processing_rx_msg; /* current processing rx buffer */
 	struct nmea_msg *curr_tx_msg; /* current processing tx buffer */
 	struct nmea_msg *processing_tx_msg; /* current processing tx buffer */
-	void (*rx_msg_handler)(struct nmea_msg *);
+	void (*rx_msg_handler)(struct nmea_msg *, void *);
+	void *priv; /* private data associated with this interface */
 
 	volatile u8 rx_carry: 1; /* Receive '\r' or '\n' symbol */
 	volatile u8 rx_ready: 1; /* flag is set, if new frame was received */
@@ -62,7 +66,7 @@ struct nmea_if {
 };
 
 int nmea_register(struct nmea_if *nmea_if, int uart_id, int uart_speed,
-				void (*rx_msg_handler)(struct nmea_msg *));
+			void (*rx_msg_handler)(struct nmea_msg *, void *));
 void nmea_msg_reset(struct nmea_msg *msg);
 int nmea_send_msg(struct nmea_if *nmea_if, struct nmea_msg *sending_msg);
 

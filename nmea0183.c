@@ -32,6 +32,9 @@ static char *nmea_si_names[] = {
 		"RRS",
 		"RIP",
 		"AIP",
+		"SOP",
+		"WDS",
+		"WRS",
 		"",
 };
 
@@ -284,7 +287,7 @@ static void nmea_if_rx_work(struct nmea_if *nmea_if)
 		}
 
 		if (nmea_if->rx_msg_handler)
-			nmea_if->rx_msg_handler(msg);
+			nmea_if->rx_msg_handler(msg, nmea_if->priv);
 
 		cli();
 		nmea_msg_reset(msg);
@@ -473,7 +476,7 @@ int nmea_send_msg(struct nmea_if *nmea_if, struct nmea_msg *sending_msg)
  * @return 0 if ok
  */
 int nmea_register(struct nmea_if *nmea_if, int uart_id, int uart_speed,
-			void (*rx_msg_handler)(struct nmea_msg *))
+			void (*rx_msg_handler)(struct nmea_msg *, void *))
 {
 	struct uart *uart = &nmea_if->uart;
 	int rc;
