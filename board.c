@@ -19,7 +19,7 @@
 #include "config.h"
 #include "uart.h"
 #include "eeprom_fs.h"
-#include "io.h"
+#include "module_io.h"
 #include "nmea0183.h"
 
 struct gpio gpio_list[] = {
@@ -177,56 +177,69 @@ struct gpio gpio_list[] = {
 	},
 };
 
+static struct io_module module_io;
+static struct io_module_wdt module_io_wdt;
+
 struct gpio_input line_inputs[] = {
 	{
 		.num = 1,
 		.gpio = gpio_list + 4,
-		.on_change = line_input_on_change,
+		.on_change = io_input_on_change,
+		.priv = &module_io,
 	},
 	{
 		.num = 2,
 		.gpio = gpio_list + 7,
-		.on_change = line_input_on_change,
+		.on_change = io_input_on_change,
+		.priv = &module_io,
 	},
 	{
 		.num = 3,
 		.gpio = gpio_list + 8,
-		.on_change = line_input_on_change,
+		.on_change = io_input_on_change,
+		.priv = &module_io,
 	},
 	{
 		.num = 4,
 		.gpio = gpio_list + 9,
-		.on_change = line_input_on_change,
+		.on_change = io_input_on_change,
+		.priv = &module_io,
 	},
 	{
 		.num = 5,
 		.gpio = gpio_list + 1,
-		.on_change = line_input_on_change,
+		.on_change = io_input_on_change,
+		.priv = &module_io,
 	},
 	{
 		.num = 6,
 		.gpio = gpio_list + 0,
-		.on_change = line_input_on_change,
+		.on_change = io_input_on_change,
+		.priv = &module_io,
 	},
 	{
 		.num = 7,
 		.gpio = gpio_list + 6,
-		.on_change = line_input_on_change,
+		.on_change = io_input_on_change,
+		.priv = &module_io,
 	},
 	{
 		.num = 8,
 		.gpio = gpio_list + 3,
-		.on_change = line_input_on_change,
+		.on_change = io_input_on_change,
+		.priv = &module_io,
 	},
 	{
 		.num = 9,
 		.gpio = gpio_list + 5,
-		.on_change = line_input_on_change,
+		.on_change = io_input_on_change,
+		.priv = &module_io,
 	},
 	{
 		.num = 10,
 		.gpio = gpio_list + 2,
-		.on_change = line_input_on_change,
+		.on_change = io_input_on_change,
+		.priv = &module_io,
 	},
 	{
 		.gpio = NULL,
@@ -248,20 +261,21 @@ struct uart uart_debug = {
 	.fdev_type = 1
 };
 
-
-struct nmea_if nmea_if;
-void nmea_rx_msg(struct nmea_msg *msg)
+void relay_set_state(int relay_num, int state)
 {
-	int i;
-	printf("RX MSG!\r\n");
-	printf("msg->argc=%d\r\n", msg->argc);
-	printf("msg->ti=%d\r\n", msg->ti);
-	printf("msg->si=%d\r\n", msg->si);
-
-	for (i = 0; i < msg->argc; i++) {
-		printf("msg->argv[%d]=(%s)\r\n", i, msg->argv[i]);
+	struct gpio *gpio;
+	switch (relay_num) {
+	case 1: gpio = gpio_list + 16; break;
+	case 2: gpio = gpio_list + 15; break;
+	case 3: gpio = gpio_list + 14; break;
+	case 4: gpio = gpio_list + 13; break;
+	case 5: gpio = gpio_list + 12; break;
+	case 6: gpio = gpio_list + 11; break;
+	case 7: gpio = gpio_list + 10; break;
+	default: return;
 	}
-	printf("\r\n");
+
+	gpio_set_value(gpio, state);
 }
 
 
@@ -278,15 +292,21 @@ static int board_init(void)
 	if (rc)
 		return rc;
 
-	rc = nmea_register(&nmea_if, 1, 9600, nmea_rx_msg);
+	gpio_register_list(gpio_list);
+	led_register(&led_red);
+	led_register(&led_green);
+
+	rc = module_io_init(&module_io, 1);
 	if (rc)
 		return rc;
 
-	gpio_register_list(gpio_list);
+#ifdef CONFIG_MODULE_IO_WDT
+	rc = module_io_wdt_init(&module_io_wdt, &module_io);
+	if (rc)
+		return rc;
+#endif
+
 	gpio_debouncer_register_list_inputs(line_inputs);
-	led_register(&led_red);
-	led_register(&led_green);
-	led_set_blink(&led_red, 300, 300, 0);
 
 	eeprom_init_fs();
 
@@ -301,7 +321,6 @@ struct sys_work debug_wrk;
 static void scan_keycode(void *arg)
 {
 	char key;
-	int rc;
 	key = usart_get_byte(&uart_debug);
 	if (!key)
 		return;
@@ -326,15 +345,15 @@ static void scan_keycode(void *arg)
 	case '6': relay_set_state(6, 1); break;
 	case '^': relay_set_state(6, 0); break;
 
-	case 'q':
+/*	case 'q':
 		printf("cnt_rx_bytes=%d\r\n", nmea_if.cnt_rx_bytes);
 		printf("cnt_msg_rx=%d\r\n", nmea_if.cnt_msg_rx);
 		printf("cnt_checksumm_err=%d\r\n", nmea_if.cnt_checksumm_err);
 		printf("cnt_rx_ring_overflow=%d\r\n", nmea_if.cnt_rx_ring_overflow);
 		printf("cnt_tx_ring_overflow=%d\r\n", nmea_if.cnt_tx_ring_overflow);
-		break;
+		break;*/
 
-	case 's': {
+/*	case 's': {
 		struct nmea_msg msg;
 		nmea_msg_reset(&msg);
 		msg.ti = NMEA_TI_IO;
@@ -344,15 +363,7 @@ static void scan_keycode(void *arg)
 		msg.argc = 2;
 		rc = nmea_send_msg(&nmea_if, &msg);
 		printf("nmea_send_msg, rc=%d\r\n", rc);
-		} break;
-
-	case 'v': {
-		int i;
-		char *test_msg = "$Hello world!!!\r\n";
-		for (i = 0; i < strlen(test_msg); i++)
-			usart_send_byte(&nmea_if.uart, test_msg[i]);
-
-		} break;
+		} break;*/
 	}
 
 }
@@ -364,7 +375,7 @@ int main(void)
 	printf("Init - ok\r\n");
 
 	debug_wrk.handler = scan_keycode;
-	sys_idle_add_handler(&debug_wrk);
+//	sys_idle_add_handler(&debug_wrk);
 
 	for(;;)
 		idle();

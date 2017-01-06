@@ -16,5 +16,6 @@
 extern struct gpio gpio_list[];
 extern struct led led_red;
 extern struct led led_green;
+void relay_set_state(int relay_num, int state);
 
 #endif /* INIT_H_ */
