@@ -32,7 +32,9 @@ static char *nmea_si_names[] = {
 		"RRS",
 		"RIP",
 		"AIP",
+		"SIP",
 		"SOP",
+		"WDC",
 		"WDS",
 		"WRS",
 		"",
@@ -77,25 +79,28 @@ void nmea_msg_reset(struct nmea_msg *msg)
  */
 static struct nmea_msg *get_empty_buf(struct nmea_if *nmea_if, int mode)
 {
-	struct nmea_msg *msg, *curr_msg, *start_msg;
+	volatile struct nmea_msg *msg, *curr_msg, *start_msg;
 
 	switch (mode) {
 	case 0:
+		cli();
 		curr_msg = nmea_if->curr_rx_msg;
 		start_msg = nmea_if->rx_messages;
+		sei();
 		break;
 	case 1:
+		cli();
 		curr_msg = nmea_if->curr_tx_msg;
 		start_msg = nmea_if->tx_messages;
+		sei();
 		break;
 	default:
 		return NULL;
 	}
 
 	msg = curr_msg;
-
 	if (!msg->ready)
-		return msg;
+		return (struct nmea_msg *)msg;
 
 	do {
 		msg ++;
@@ -103,11 +108,13 @@ static struct nmea_msg *get_empty_buf(struct nmea_if *nmea_if, int mode)
 			msg = start_msg;
 		if (!msg->ready) {
 			msg->buf_len = -1;
+			cli();
 			switch (mode) {
 			case 0: nmea_if->curr_rx_msg = msg; break;
 			case 1: nmea_if->curr_tx_msg = msg; break;
 			}
-			return msg;
+			sei();
+			return (struct nmea_msg *)msg;
 		}
 	} while (msg != curr_msg);
 
@@ -123,16 +130,20 @@ static struct nmea_msg *get_empty_buf(struct nmea_if *nmea_if, int mode)
  */
 static struct nmea_msg *get_filled_buf(struct nmea_if *nmea_if, int mode)
 {
-	struct nmea_msg *msg, *curr_msg, *start_msg;
+	volatile struct nmea_msg *msg, *curr_msg, *start_msg;
 
 	switch (mode) {
 	case 0:
+		cli();
 		curr_msg = nmea_if->processing_rx_msg;
 		start_msg = nmea_if->rx_messages;
+		sei();
 		break;
 	case 1:
+		cli();
 		curr_msg = nmea_if->processing_tx_msg;
 		start_msg = nmea_if->tx_messages;
+		sei();
 		break;
 	default:
 		return NULL;
@@ -141,7 +152,7 @@ static struct nmea_msg *get_filled_buf(struct nmea_if *nmea_if, int mode)
 	msg = curr_msg;
 
 	if (msg->ready)
-		return msg;
+		return (struct nmea_msg *)msg;
 
 	do {
 		msg ++;
@@ -149,11 +160,13 @@ static struct nmea_msg *get_filled_buf(struct nmea_if *nmea_if, int mode)
 			msg = start_msg;
 
 		if (msg->ready) {
+			cli();
 			switch (mode) {
 			case 0: nmea_if->processing_rx_msg = msg; break;
 			case 1: nmea_if->processing_tx_msg = msg; break;
 			}
-			return msg;
+			sei();
+			return (struct nmea_msg *)msg;
 		}
 	} while (msg != curr_msg);
 
@@ -190,7 +203,7 @@ static int nmea_parse(struct nmea_msg *msg)
 			cnt = 0;
 			continue;
 		case '*':
-			cs_argc_num = ++msg->argc;
+			cs_argc_num = msg->argc++;
 			cs_pos = i;
 			cnt = 0;
 			continue;
@@ -261,8 +274,9 @@ static int nmea_parse(struct nmea_msg *msg)
  */
 static void nmea_if_rx_work(struct nmea_if *nmea_if)
 {
-	struct nmea_msg *msg = nmea_if->processing_rx_msg;
+	struct nmea_msg *msg = (struct nmea_msg *)nmea_if->processing_rx_msg;
 	int rc;
+	struct le *le;
 
 	if (!nmea_if->rx_ready)
 		return;
@@ -286,8 +300,11 @@ static void nmea_if_rx_work(struct nmea_if *nmea_if)
 			continue;
 		}
 
-		if (nmea_if->rx_msg_handler)
-			nmea_if->rx_msg_handler(msg, nmea_if->priv);
+		/* send received message to all subscribers */
+		LIST_FOREACH(&nmea_if->list_subscribers, le) {
+			struct nmea_subsriber *subscriber = list_ledata(le);
+			subscriber->rx_callback(msg, subscriber->priv);
+		}
 
 		cli();
 		nmea_msg_reset(msg);
@@ -304,7 +321,7 @@ static void nmea_if_rx_work(struct nmea_if *nmea_if)
  */
 static void nmea_receiver(struct nmea_if *nmea_if, u8 rxb)
 {
-	struct nmea_msg *msg = nmea_if->curr_rx_msg;
+	volatile struct nmea_msg *msg = nmea_if->curr_rx_msg;
 
 	nmea_if->cnt_rx_bytes++;
 
@@ -357,7 +374,7 @@ static void nmea_receiver(struct nmea_if *nmea_if, u8 rxb)
  */
 static void nmea_transmitter(struct nmea_if *nmea_if)
 {
-	struct nmea_msg *msg = nmea_if->curr_tx_msg;
+	struct nmea_msg *msg = (struct nmea_msg *)nmea_if->curr_tx_msg;
 
 	if (!msg->ready)
 		msg = get_filled_buf(nmea_if, 1);
@@ -372,7 +389,8 @@ static void nmea_transmitter(struct nmea_if *nmea_if)
 		return;
 	}
 
-	usart_send_byte(&nmea_if->uart, msg->msg_buf[nmea_if->tx_cnt++]);
+	u8 b = msg->msg_buf[nmea_if->tx_cnt++];
+	usart_send_byte(&nmea_if->uart, b);
 	usart_enable_udre_irq(&nmea_if->uart);
 }
 
@@ -431,6 +449,12 @@ static int build_nmea_msg(struct nmea_msg *msg, char *result_buf)
 	return 0;
 }
 
+void nmea_add_subscriber(struct nmea_if *nmea_if, struct nmea_subsriber *s)
+{
+	cli();
+	list_append(&nmea_if->list_subscribers, &s->le, s);
+	sei();
+}
 
 /**
  * Send frame into a RS-485 bus
@@ -442,10 +466,10 @@ int nmea_send_msg(struct nmea_if *nmea_if, struct nmea_msg *sending_msg)
 {
 	struct nmea_msg *msg;
 	int rc;
-
 	cli();
 	msg = get_empty_buf(nmea_if, 1);
 	sei();
+
 	if (!msg) {
 		nmea_if->cnt_tx_ring_overflow++;
 		return -ENOSPC;
@@ -475,8 +499,7 @@ int nmea_send_msg(struct nmea_if *nmea_if, struct nmea_msg *sending_msg)
  * @param uart_speed - speed in bod per second
  * @return 0 if ok
  */
-int nmea_register(struct nmea_if *nmea_if, int uart_id, int uart_speed,
-			void (*rx_msg_handler)(struct nmea_msg *, void *))
+int nmea_register(struct nmea_if *nmea_if, int uart_id, int uart_speed)
 {
 	struct uart *uart = &nmea_if->uart;
 	int rc;
@@ -486,13 +509,12 @@ int nmea_register(struct nmea_if *nmea_if, int uart_id, int uart_speed,
 
 	/* Reset ring buffers */
 	for (i = 0; i < NMEA_MSG_RING_SIZE; i++) {
-		nmea_msg_reset(nmea_if->rx_messages + i);
-		nmea_msg_reset(nmea_if->tx_messages + i);
+		nmea_msg_reset((struct nmea_msg *)nmea_if->rx_messages + i);
+		nmea_msg_reset((struct nmea_msg *)nmea_if->tx_messages + i);
 	}
 
 	nmea_if->curr_rx_msg = nmea_if->processing_rx_msg = nmea_if->rx_messages;
 	nmea_if->curr_tx_msg = nmea_if->processing_tx_msg = nmea_if->tx_messages;
-	nmea_if->rx_msg_handler = rx_msg_handler;
 
 	uart->chip_id = uart_id;
 	uart->baud_rate = uart_speed;
@@ -507,8 +529,26 @@ int nmea_register(struct nmea_if *nmea_if, int uart_id, int uart_speed,
 	rc = usart_init(uart);
 	if (rc)
 		return rc;
+
 	return 0;
 }
 
+void nmea_dump(struct nmea_if *nmea_if)
+{
+	int i;
+	volatile struct nmea_msg *msg;
 
+	printf("print rx queue:\r\n");
+	for (i = 0; i < NMEA_MSG_RING_SIZE; i++) {
+		msg = nmea_if->rx_messages + i;
+		printf("%d: %p, r=%d\r\n", i, msg, msg->ready);
+	}
+	printf("\r\nprint tx queue:\r\n");
+	for (i = 0; i < NMEA_MSG_RING_SIZE; i++) {
+		msg = nmea_if->tx_messages + i;
+		printf("%d: %p, r=%d\r\n", i, msg, msg->ready);
+	}
+	printf("\tcurr_rx_msg = %p\r\n", nmea_if->curr_rx_msg);
+	printf("\tcurr_tx_msg = %p\r\n", nmea_if->curr_tx_msg);
+}
 

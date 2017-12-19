@@ -7,7 +7,7 @@
 #include "idle.h"
 #include "list.h"
 
-#define GPIO_DEBOUNCE_INTERVAL 50
+#define GPIO_DEBOUNCE_INTERVAL 3
 
 struct gpio_input
 {

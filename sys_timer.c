@@ -37,11 +37,11 @@ void sys_timer_add_handler(struct sys_timer *timer)
 }
 
 /* configure timer2 to frequency 1000Hz */
-#define TIMER2_DELAY (u8)((u32)F_CPU / 1000 / (2 * 32) - 1)
+#define TIMER2_DELAY (u8)((u32)F_CPU / 64 / (1000) - 1)
 void sys_timer_init(void)
 {
 	OCR2 = TIMER2_DELAY;
-	TCCR2 = 0b011;
+	TCCR2 = 0b011 | (1 << WGM21);
 	TIFR |= OCF2;
 	TIMSK |= _BV(OCIE2);
 }

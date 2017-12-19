@@ -7,53 +7,71 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <avr/wdt.h>
 #include "board.h"
 #include "types.h"
 #include "gpio_debouncer.h"
 #include "nmea0183.h"
 #include "module_io.h"
-#include "module_io_wdt.h"
 
 
-static int send_input_line_state(struct io_module *io, int input_num, int imput_state)
+static int send_input_line_state(struct mio *io, int input_num, int imput_state)
 {
 	struct nmea_msg msg;
 
 	nmea_msg_reset(&msg);
 	msg.ti = NMEA_TI_IO;
 	msg.si = NMEA_SI_AIP;
-	sprintf(msg.argv[1], "%d", input_num);
-	sprintf(msg.argv[2], "%d", imput_state);
-	msg.argc = 2;
-	return nmea_send_msg(&io->nmea_if, &msg);
+	sprintf(msg.argv[1], "%d", 0);
+	sprintf(msg.argv[2], "%d", input_num);
+	sprintf(msg.argv[3], "%d", imput_state);
+	msg.argc = 3;
+	return nmea_send_msg(io->nmea_if, &msg);
 }
 
 
-static int send_output_line_state(struct io_module *io, int output_num, int output_state)
+static int
+send_responce_line_state(struct mio *io, int sender_id, int input_num, int imput_state)
+{
+	struct nmea_msg msg;
+
+	nmea_msg_reset(&msg);
+	msg.ti = NMEA_TI_IO;
+	msg.si = NMEA_SI_SIP;
+	sprintf(msg.argv[1], "%d", sender_id);
+	sprintf(msg.argv[2], "%d", input_num);
+	sprintf(msg.argv[3], "%d", imput_state);
+	msg.argc = 3;
+	return nmea_send_msg(io->nmea_if, &msg);
+}
+
+
+static int
+send_output_line_state(struct mio *io, int sender_id, int output_num, int output_state)
 {
 	struct nmea_msg msg;
 
 	nmea_msg_reset(&msg);
 	msg.ti = NMEA_TI_IO;
 	msg.si = NMEA_SI_SOP;
-	sprintf(msg.argv[1], "%d", output_num);
-	sprintf(msg.argv[2], "%d", output_state);
-	msg.argc = 2;
-	return nmea_send_msg(&io->nmea_if, &msg);
+	sprintf(msg.argv[1], "%d", sender_id);
+	sprintf(msg.argv[2], "%d", output_num);
+	sprintf(msg.argv[3], "%d", output_state);
+	msg.argc = 3;
+	return nmea_send_msg(io->nmea_if, &msg);
 }
 
-
-void io_input_on_change(struct gpio_input *gi, u8 new_state)
+void usio_input_on_change(struct gpio_input *gi, u8 new_state)
 {
-	struct io_module *io = (struct io_module *)gi->priv;
-	int input_num = gi->num - 1;
+	struct mio *io = (struct mio *)gi->priv;
+	int input_num = gi->num;
 	new_state = !new_state;
 
 	led_set_blink(&led_red, 200, 300, 1);
 	switch (io->io_mode) {
 	case IO_MODE_MAIN:
 		printf("input %d changed to %d\r\n", input_num, new_state);
-		io->new_input_states[input_num] = new_state;
+		io->new_input_states[input_num - 1] = new_state;
 		io->inputs_changed = 1;
 		break;
 
@@ -62,18 +80,16 @@ void io_input_on_change(struct gpio_input *gi, u8 new_state)
 	}
 }
 
-static void io_work(struct io_module *io)
+static void io_work(struct mio *io)
 {
 	int rc, i;
-	if (!io->inputs_changed)
-		return;
+	wdt_reset();
 
 	io->inputs_changed = 0;
 	for (i = 0; i < IO_INPUTS_NUM; i++) {
 		if (io->new_input_states[i] == io->input_states[i])
 			continue;
 
-		printf("send_input_line_state %d, %d\r\n", i, io->new_input_states[i]);
 		rc = send_input_line_state(io, i + 1,
 					io->new_input_states[i]);
 		if (rc)
@@ -84,93 +100,71 @@ static void io_work(struct io_module *io)
 }
 
 
-int io_get_input_state(struct io_module *io, int input_num)
+int usio_get_input_state(struct mio *io, int input_num)
 {
-	return io->input_states[input_num];
+	return io->input_states[input_num - 1];
 }
 
-void io_output_set_state(struct io_module *io, int output_num, int new_state)
+void usio_relay_set_state(struct mio *io, int relay_num, int new_state)
 {
-	if (output_num < 1 || output_num > IO_OUTPUS_NUM)
+	if (relay_num < 1 || relay_num > IO_OUTPUS_NUM)
 		return;
 
 	if (new_state < 0 || new_state > 1)
 		return;
 
 	led_set_blink(&led_green, 200, 300, 1);
-	printf("output %d changed to %d\r\n", output_num, new_state);
 
-	io->output_states[output_num] = new_state;
-	relay_set_state(output_num, new_state);
-	send_output_line_state(io, output_num, new_state);
+	io->relay_states[relay_num - 1] = new_state;
+	relay_set_state(relay_num, new_state);
 }
 
 
-void nmea_rx_msg(struct nmea_msg *msg, struct io_module *io)
+static void nmea_rx_msg(struct nmea_msg *msg, struct mio *io)
 {
-	int output_num, output_state, input_num, state;
+	int output_num, output_state, input_num, sender_id;
 
 	if (msg->ti != NMEA_TI_PC)
 		return;
 
 	switch (msg->si) {
 	case NMEA_SI_RWS: // Set relay state
-		if (msg->argc < 3)
+		if (msg->argc < 4)
 			break;
 
-		sscanf(msg->argv[1], "%d", &output_num);
-		sscanf(msg->argv[2], "%d", &output_state);
+		sscanf(msg->argv[1], "%d", &sender_id);
+		sscanf(msg->argv[2], "%d", &output_num);
+		sscanf(msg->argv[3], "%d", &output_state);
 		switch (io->io_mode) {
 		case IO_MODE_MAIN:
-			io_output_set_state(io, output_num, output_state);
+			usio_relay_set_state(io, output_num, output_state);
 			break;
 
 		case IO_MODE_DEBUG:
-			io->output_states[output_num] = output_state;
+			io->relay_states[output_num - 1] = output_state;
 			break;
 		}
+		send_output_line_state(io, sender_id, output_num, output_state);
 		break;
 
 	case NMEA_SI_RRS: // Get curent relay state
-		if (msg->argc < 2)
+		if (msg->argc < 3)
 			break;
 
-		sscanf(msg->argv[1], "%d", &output_num);
-		send_output_line_state(io, output_num,
-				io->output_states[output_num]);
+		sscanf(msg->argv[1], "%d", &sender_id);
+		sscanf(msg->argv[2], "%d", &output_num);
+		send_output_line_state(io, sender_id, output_num,
+				io->relay_states[output_num - 1]);
 		break;
 
 	case NMEA_SI_RIP:
-		if (msg->argc < 2)
+		if (msg->argc < 3)
 			break;
 
-		sscanf(msg->argv[1], "%d", &input_num);
-		send_input_line_state(io, input_num,
-				io_get_input_state(io, input_num));
-		break;
-
-	case NMEA_SI_WDS:
-		if (msg->argc < 2)
-			break;
-
-		if (!io->wdt)
-			break;
-
-		sscanf(msg->argv[1], "%d", &state);
-
-		if (state) {
-			printf("WDT ENABLE\r\n");
-			io_wdt_enable(io->wdt);
-		} else {
-			printf("WDT DISABLE\r\n");
-			io_wdt_disable(io->wdt);
-		}
-		break;
-
-	case NMEA_SI_WRS:
-		printf("WDT RST\r\n");
-		if (io->wdt)
-			io_wdt_reset(io->wdt);
+		sscanf(msg->argv[1], "%d", &sender_id);
+		sscanf(msg->argv[2], "%d", &input_num);
+		send_responce_line_state(io, sender_id, input_num,
+				usio_get_input_state(io, input_num));
 		break;
 
 	default:
@@ -180,25 +174,24 @@ void nmea_rx_msg(struct nmea_msg *msg, struct io_module *io)
 
 
 
-int module_io_init(struct io_module *io, int uart_id)
+int usio_init(struct mio *io, struct nmea_if *nmea_if)
 {
-	int rc, i;
+	int i;
 
 	memset(io, 0, sizeof(*io));
+	io->nmea_if = nmea_if;
 
 	for (i = 1; i <= IO_OUTPUS_NUM; i++)
-		io_output_set_state(io, i, 0);
+		usio_relay_set_state(io, i, 0);
 
-	rc = nmea_register(&io->nmea_if, uart_id, 9600,
-		(void (*)(struct nmea_msg *, void *)) nmea_rx_msg);
-	if (rc)
-		return rc;
+	io->ns.rx_callback = (void (*)(struct nmea_msg *, void *))nmea_rx_msg;
+	io->ns.priv = io;
+	nmea_add_subscriber(nmea_if, &io->ns);
 
 	io->wrk.handler = (void (*)(void *))io_work;
 	io->wrk.priv = io;
 	sys_idle_add_handler(&io->wrk);
 
 	io->io_mode = IO_MODE_MAIN;
-	io->nmea_if.priv = io;
 	return 0;
 }

@@ -2,10 +2,9 @@
 #include "gpio_debouncer.h"
 
 
-static void gpio_debouncer_timer_handler(void *arg)
+static void gpio_debouncer_timer_handler(struct gpio_input *input)
 {
 	u8 curr_state;
-	struct gpio_input *input = (struct gpio_input *)arg;
 
 	curr_state = gpio_get_state(input->gpio);
 	if (input->prev_state != curr_state) {
@@ -43,7 +42,7 @@ void gpio_debouncer_register_input(struct gpio_input *input)
 
 	input->timer.devisor = 1;
 	input->timer.priv = input;
-	input->timer.handler = gpio_debouncer_timer_handler;
+	input->timer.handler = (void (*)(void *))gpio_debouncer_timer_handler;
 	sys_timer_add_handler(&input->timer);
 
 	input->wrk.priv = input;

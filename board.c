@@ -10,6 +10,7 @@
 #include <avr/wdt.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
+#include <avr/pgmspace.h>
 #include "board.h"
 #include "types.h"
 #include "idle.h"
@@ -20,9 +21,10 @@
 #include "uart.h"
 #include "eeprom_fs.h"
 #include "module_io.h"
+#include "module_wdt.h"
 #include "nmea0183.h"
 
-struct gpio gpio_list[] = {
+static struct gpio gpio_list[] = {
 	/* List inputs */
 	{ // 0: input 6
 		.direction_addr = (u8 *) &DDRA,
@@ -177,68 +179,68 @@ struct gpio gpio_list[] = {
 	},
 };
 
-static struct io_module module_io;
-static struct io_module_wdt module_io_wdt;
+static struct mio module_io;
+static struct mwdt module_wdt;
 
 struct gpio_input line_inputs[] = {
 	{
 		.num = 1,
 		.gpio = gpio_list + 4,
-		.on_change = io_input_on_change,
+		.on_change = usio_input_on_change,
 		.priv = &module_io,
 	},
 	{
 		.num = 2,
 		.gpio = gpio_list + 7,
-		.on_change = io_input_on_change,
+		.on_change = usio_input_on_change,
 		.priv = &module_io,
 	},
 	{
 		.num = 3,
 		.gpio = gpio_list + 8,
-		.on_change = io_input_on_change,
+		.on_change = usio_input_on_change,
 		.priv = &module_io,
 	},
 	{
 		.num = 4,
 		.gpio = gpio_list + 9,
-		.on_change = io_input_on_change,
+		.on_change = usio_input_on_change,
 		.priv = &module_io,
 	},
 	{
 		.num = 5,
 		.gpio = gpio_list + 1,
-		.on_change = io_input_on_change,
+		.on_change = usio_input_on_change,
 		.priv = &module_io,
 	},
 	{
 		.num = 6,
 		.gpio = gpio_list + 0,
-		.on_change = io_input_on_change,
+		.on_change = usio_input_on_change,
 		.priv = &module_io,
 	},
 	{
 		.num = 7,
 		.gpio = gpio_list + 6,
-		.on_change = io_input_on_change,
+		.on_change = usio_input_on_change,
 		.priv = &module_io,
 	},
 	{
 		.num = 8,
 		.gpio = gpio_list + 3,
-		.on_change = io_input_on_change,
+		.on_change = usio_input_on_change,
 		.priv = &module_io,
 	},
 	{
 		.num = 9,
 		.gpio = gpio_list + 5,
-		.on_change = io_input_on_change,
+		.on_change = usio_input_on_change,
 		.priv = &module_io,
 	},
 	{
 		.num = 10,
 		.gpio = gpio_list + 2,
-		.on_change = io_input_on_change,
+		.on_change = usio_input_on_change,
 		.priv = &module_io,
 	},
 	{
@@ -260,6 +262,9 @@ struct uart uart_debug = {
 	.baud_rate = 9600,
 	.fdev_type = 1
 };
+
+struct nmea_if nmea_if;
+
 
 void relay_set_state(int relay_num, int state)
 {
@@ -296,12 +301,16 @@ static int board_init(void)
 	led_register(&led_red);
 	led_register(&led_green);
 
-	rc = module_io_init(&module_io, 1);
+	rc = nmea_register(&nmea_if, 1, 9600);
+	if (rc)
+		return rc;
+
+	rc = usio_init(&module_io, &nmea_if);
 	if (rc)
 		return rc;
 
 #ifdef CONFIG_MODULE_IO_WDT
-	rc = module_io_wdt_init(&module_io_wdt, &module_io);
+	rc = m_wdt_init(&module_wdt, &nmea_if, &module_io);
 	if (rc)
 		return rc;
 #endif
@@ -310,7 +319,7 @@ static int board_init(void)
 
 	eeprom_init_fs();
 
-//	wdt_enable(WDTO_2S);
+	wdt_enable(WDTO_2S);
 
 	sei();
 	return 0;
@@ -325,9 +334,14 @@ static void scan_keycode(void *arg)
 	if (!key)
 		return;
 
-	printf("key=%c\r\n", key);
 	switch (key) {
-	case '1': relay_set_state(1, 1); break;
+	case 't':
+		cli();
+		printf("module_wdt->counter = %d\r\n", module_wdt.counter);
+		printf("module_wdt->state = %d\r\n", module_wdt.state);
+		sei();
+		break;
+	/*case '1': relay_set_state(1, 1); break;
 	case '!': relay_set_state(1, 0); break;
 
 	case '2': relay_set_state(2, 1); break;
@@ -344,6 +358,8 @@ static void scan_keycode(void *arg)
 
 	case '6': relay_set_state(6, 1); break;
 	case '^': relay_set_state(6, 0); break;
+*/
+//	default: usart_send_byte(&module_io.nmea_if.uart, key); break;
 
 /*	case 'q':
 		printf("cnt_rx_bytes=%d\r\n", nmea_if.cnt_rx_bytes);
@@ -375,7 +391,7 @@ int main(void)
 	printf("Init - ok\r\n");
 
 	debug_wrk.handler = scan_keycode;
-//	sys_idle_add_handler(&debug_wrk);
+	sys_idle_add_handler(&debug_wrk);
 
 	for(;;)
 		idle();
