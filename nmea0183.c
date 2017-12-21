@@ -264,6 +264,8 @@ static int nmea_parse(struct nmea_msg *msg)
 			break;
 		}
 	}
+	/* sender id */
+	sscanf(msg->argv[1], "%d", &msg->sender_id);
 
 	return 0;
 }

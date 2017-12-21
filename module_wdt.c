@@ -30,7 +30,7 @@
 
 static void server_set_power_down(struct mwdt *wdt, u8 mode)
 {
-	usio_relay_set_state(wdt->io, WDT_POWER_OUT_NUM, !mode);
+	usio_relay_set_state(wdt->io, WDT_POWER_OUT_NUM, mode);
 }
 
 static void server_set_power_button(struct mwdt *wdt, u8 mode)
@@ -206,7 +206,7 @@ void m_wdt_reset(struct mwdt *wdt)
 
 static void nmea_rx_msg(struct nmea_msg *msg, struct mwdt *wdt)
 {
-	int state, sender_id;
+	int state;
 
 	if (msg->ti != NMEA_TI_PC)
 		return;
@@ -216,22 +216,20 @@ static void nmea_rx_msg(struct nmea_msg *msg, struct mwdt *wdt)
 		if (msg->argc < 3)
 			break;
 
-		sscanf(msg->argv[1], "%d", &sender_id);
 		sscanf(msg->argv[2], "%d", &state);
 		if (state)
 			m_wdt_enable(wdt);
 		else
 			m_wdt_disable(wdt);
 
-		send_wdt_state(wdt, sender_id);
+		send_wdt_state(wdt, msg->sender_id);
 		break;
 
 	case NMEA_SI_WDS: // Get curent WDS state
 		if (msg->argc < 2)
 			break;
 
-		sscanf(msg->argv[1], "%d", &sender_id);
-		send_wdt_state(wdt, sender_id);
+		send_wdt_state(wdt, msg->sender_id);
 		break;
 
 	case NMEA_SI_WRS:

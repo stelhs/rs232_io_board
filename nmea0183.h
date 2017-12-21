@@ -40,6 +40,7 @@ struct nmea_msg {
 	bool ready :1;
 	enum nmea_talkers_identifiers ti;
 	enum nmea_sentence_identifiers si;
+	int sender_id;
 	char argv[5][8]; /* parsed arguments */
 	u8 argc; /* number parsed arguments */
 };

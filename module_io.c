@@ -122,7 +122,7 @@ void usio_relay_set_state(struct mio *io, int relay_num, int new_state)
 
 static void nmea_rx_msg(struct nmea_msg *msg, struct mio *io)
 {
-	int output_num, output_state, input_num, sender_id;
+	int output_num, output_state, input_num;
 
 	if (msg->ti != NMEA_TI_PC)
 		return;
@@ -132,7 +132,6 @@ static void nmea_rx_msg(struct nmea_msg *msg, struct mio *io)
 		if (msg->argc < 4)
 			break;
 
-		sscanf(msg->argv[1], "%d", &sender_id);
 		sscanf(msg->argv[2], "%d", &output_num);
 		sscanf(msg->argv[3], "%d", &output_state);
 		switch (io->io_mode) {
@@ -144,16 +143,15 @@ static void nmea_rx_msg(struct nmea_msg *msg, struct mio *io)
 			io->relay_states[output_num - 1] = output_state;
 			break;
 		}
-		send_output_line_state(io, sender_id, output_num, output_state);
+		send_output_line_state(io, msg->sender_id, output_num, output_state);
 		break;
 
 	case NMEA_SI_RRS: // Get curent relay state
 		if (msg->argc < 3)
 			break;
 
-		sscanf(msg->argv[1], "%d", &sender_id);
 		sscanf(msg->argv[2], "%d", &output_num);
-		send_output_line_state(io, sender_id, output_num,
+		send_output_line_state(io, msg->sender_id, output_num,
 				io->relay_states[output_num - 1]);
 		break;
 
@@ -161,9 +159,8 @@ static void nmea_rx_msg(struct nmea_msg *msg, struct mio *io)
 		if (msg->argc < 3)
 			break;
 
-		sscanf(msg->argv[1], "%d", &sender_id);
 		sscanf(msg->argv[2], "%d", &input_num);
-		send_responce_line_state(io, sender_id, input_num,
+		send_responce_line_state(io, msg->sender_id, input_num,
 				usio_get_input_state(io, input_num));
 		break;
 
