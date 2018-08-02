@@ -330,6 +330,7 @@ struct sys_work debug_wrk;
 static void scan_keycode(void *arg)
 {
 	char key;
+	int i;
 	key = usart_get_byte(&uart_debug);
 	if (!key)
 		return;
@@ -341,6 +342,17 @@ static void scan_keycode(void *arg)
 		printf("module_wdt->state = %d\r\n", module_wdt.state);
 		sei();
 		break;
+
+	case 'd':
+		for (i = 0; i < 10; i++)
+			printf("input_states[%d]=%d\r\n", i, module_io.input_states[i]);
+		printf("\r\n");
+
+		for (i = 0; i < 10; i++)
+			printf("new_input_states[%d]=%d\r\n", i, module_io.new_input_states[i]);
+		printf("\r\n");
+
+
 	/*case '1': relay_set_state(1, 1); break;
 	case '!': relay_set_state(1, 0); break;
 

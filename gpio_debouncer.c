@@ -53,6 +53,8 @@ void gpio_debouncer_register_input(struct gpio_input *input)
 void gpio_debouncer_register_list_inputs(struct gpio_input *list_inputs)
 {
 	struct gpio_input *input;
-	for (input = list_inputs; input->gpio; input++)
+	for (input = list_inputs; input->gpio; input++) {
 		gpio_debouncer_register_input(input);
+		input->changed = 1;
+	}
 }
