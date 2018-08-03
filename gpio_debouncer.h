@@ -7,7 +7,7 @@
 #include "idle.h"
 #include "list.h"
 
-#define GPIO_DEBOUNCE_INTERVAL 3
+#define GPIO_DEBOUNCE_INTERVAL 20
 
 struct gpio_input
 {
@@ -19,8 +19,8 @@ struct gpio_input
 
 // Private:
 	struct le le;
-	u8 changed :1;
-	u8 prev_state :1;
+	volatile u8 changed;
+	volatile u8 prev_state;
 	t_counter debounce_counter;
 	struct sys_timer timer;
 	struct sys_work wrk;

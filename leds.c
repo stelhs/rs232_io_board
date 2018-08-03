@@ -93,12 +93,13 @@ void led_set_blink(struct led *led, t_counter interval1,
 		interval2 = interval1;
 
 	gpio_set_value(led->gpio, ON);
-	cli();
+	// TODO: Needs to disable/enable IRQ with save preview IRQ state
+//	cli();
 	led->interval1 = interval1 / 10 + 1;
 	led->interval2 = interval2 / 10 + 1;
 	led->blink_timer = led->interval1;
 	led->blink_counter = count ? (count + 1) : 0;
-	sei();
+//	sei();
 }
 
 
