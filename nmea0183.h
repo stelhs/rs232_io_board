@@ -32,6 +32,7 @@ enum nmea_sentence_identifiers {
 	NMEA_SI_WDC, // (WDT Control state (ON/OFF))
 	NMEA_SI_WDS, // (Request for PC and and return by IO current WDT State (ON/OFF))
 	NMEA_SI_WRS, // (WDT Reset)
+	NMEA_SI_ASP, // (Startup action after power on)
 };
 
 struct nmea_msg {

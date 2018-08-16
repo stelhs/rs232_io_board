@@ -37,6 +37,7 @@ static char *nmea_si_names[] = {
 		"WDC",
 		"WDS",
 		"WRS",
+		"ASP",
 		"",
 };
 

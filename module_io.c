@@ -30,6 +30,19 @@ static int send_input_line_state(struct mio *io, int input_num, int imput_state)
 }
 
 
+static int send_startup_action(struct mio *io)
+{
+	struct nmea_msg msg;
+
+	nmea_msg_reset(&msg);
+	msg.ti = NMEA_TI_IO;
+	msg.si = NMEA_SI_ASP;
+	sprintf(msg.argv[1], "%d", 0);
+	msg.argc = 1;
+	return nmea_send_msg(io->nmea_if, &msg);
+}
+
+
 static int
 send_responce_line_state(struct mio *io, int sender_id, int input_num, int imput_state)
 {
@@ -190,5 +203,7 @@ int usio_init(struct mio *io, struct nmea_if *nmea_if)
 	sys_idle_add_handler(&io->wrk);
 
 	io->io_mode = IO_MODE_MAIN;
+
+	send_startup_action(io);
 	return 0;
 }
